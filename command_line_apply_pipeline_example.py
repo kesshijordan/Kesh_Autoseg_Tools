@@ -1,18 +1,16 @@
 #!/usr/bin/python
 
 '''
-This runs a merged freesurfer targeting/recobundles approach that both constrains endpoints and matches shape. Run this by providing a patient wholebrain streamline dataset .trk file, a patient aparc+aseg.nii from freesurfer, and an output directory. If you're in the ALBA or Henry Labs at UCSF, then make sure
+This runs a merged freesurfer targeting/recobundles approach that both constrains endpoints and matches shape. 
+Run this by providing a patient wholebrain streamline dataset .trk file, a patient aparc+aseg.nii from freesurfer, and an output directory. 
 '''
 
 import pandas as pd
 import os
-
-from dipy.tracking import utils
-
 import nibabel as nib
 import numpy as np
 
-
+from dipy.tracking import utils
 from dipy.align.streamlinear import whole_brain_slr
 from dipy.segment.bundles import RecoBundles
 from dipy.io.streamline import load_trk
@@ -82,7 +80,7 @@ def build_dict(track_name, roi_matrix):
             roitype = 'exclude'
         else:
             raise('UHOH')
-        setname = 'set'+str(int(i))
+        setname = 'set' + str(int(i))
         roi_dict[roitype][setname] = {}
 
         temp = roi_matrix[rois == i]
@@ -124,9 +122,10 @@ def rough_reg(sub_fixed, temp_moving):
 # Recobundles wrapper
 def run_rb(template, bucket, pruning_thr=10):
     # try pruning thresh 10 if not specific drop to 5
+    # Improvement: set a custom pruning threshold for each bundle
 
     rb = RecoBundles(bucket, clust_thr=5)
-    # TODO: for efficiency, we want to segment all model bundes at once
+
     recog_bundle, recog_labels = rb.recognize(model_bundle=template,
                                               model_clust_thr=5.,
                                               reduction_thr=10,
@@ -138,20 +137,19 @@ def run_rb(template, bucket, pruning_thr=10):
 def runkeshpype(wb_path, apac_path, putdir, convertapi=False):
 
     # This is the whole brain streamline dataset in the template space
-    wb_template = '/Users/kesshijordan/Desktop/cleanup_desktop2/IU_Bloomington/qb_templates/Base_CTRL/Whole_Brain_long_resaved_newapi.trk'
+    wb_template = 'Whole_Brain_template_resaved_newapi.trk'
 
     # This is the lookup table for what freesurfer ROIs are targeted per track
-    roi_matrix_path = 'WM_pathways_freesurfer_based_seg_EC_KMJmod.xlsx'
+    roi_matrix_path = 'ROI_target_rules_lookup.csv'
 
     # This is the lookup table for what bundle templates are used per track
-    readme_path = 'kesh_pipeline_bundle_template_lookup.xlsx'
-    readme_df = pd.read_excel(readme_path).dropna(subset=['file_name'])
+    bundle_template_path = 'bundle_template_lookup.csv'
+    bundle_template_df = pd.read_csv(bundle_template_path).dropna(subset=['file_name'])
 
     # Build a dictionary of template paths
     template_path_dict = {}
-    for c in readme_df.column_name:
-        template_path_dict[c] = readme_df[readme_df.column_name ==
-                                          c].file_name.values[0]
+    for c in bundle_template_df.column_name:
+        template_path_dict[c] = bundle_template_df[bundle_template_df.column_name == c].file_name.values[0]
     print('Segmenting the following:')
     print(template_path_dict)
 
@@ -172,10 +170,9 @@ def runkeshpype(wb_path, apac_path, putdir, convertapi=False):
 
     apac_im, apac_data, apac_aff = loadnii(apac_path)
 
-    roi_matrix = pd.read_excel(roi_matrix_path)
+    roi_matrix = pd.read_csv(roi_matrix_path)
 
-    moved_temp2case, xfm_temp2case, qbc1_temp2pcase, qbc2_temp2case = rough_reg(
-        wb_sls, wb_template_sls)
+    moved_temp2case, xfm_temp2case, qbc1_temp2pcase, qbc2_temp2case = rough_reg(wb_sls, wb_template_sls)
 
     # BUNDLE SPECIFIC CODE
     for track_of_interest in template_path_dict.keys():
@@ -187,18 +184,14 @@ def runkeshpype(wb_path, apac_path, putdir, convertapi=False):
         template_boi_sls, template_boi_hdr = load_trk(template_boi)
         template_boi_tg = nib.streamlines.Tractogram(template_boi_sls)
         bundle = targetme(wb_sls, include, exclude, apac_aff)
-        template_boi_sls_xfmd = template_boi_tg.copy(
-        ).apply_affine(xfm_temp2case).streamlines
+        template_boi_sls_xfmd = template_boi_tg.copy().apply_affine(xfm_temp2case).streamlines
 
-        template_arrayseq = nib.streamlines.array_sequence.ArraySequence(
-            template_boi_sls_xfmd)
+        template_arrayseq = nib.streamlines.array_sequence.ArraySequence(template_boi_sls_xfmd)
         bucket_arrayseq = nib.streamlines.array_sequence.ArraySequence(bundle)
         rb_boi, ig_ip = run_rb(template_arrayseq, bucket_arrayseq)
 
-        savepath = os.path.join(
-            putdir, track_of_interest.replace(' ', '_')+'_TESTING.trk')
-        save_old_trk(bucket_arrayseq[ig_ip], wb_hdr,
-                     apac_im, savepath)
+        savepath = os.path.join(putdir, track_of_interest.replace(' ', '_')+'_autoseg.trk')
+        save_old_trk(bucket_arrayseq[ig_ip], wb_hdr, apac_im, savepath)
         print('Saved to %s' % savepath)
 
 
